@@ -18,24 +18,40 @@ using namespace std;
 
 int merge(vector<Mat> &categories, vector<Mat> &likelihoods) {
   int total = categories[0].rows * categories.size();
-  double threshold = 0.5;
+  double threshold = 0.25;
   double minDistance = 0.0;
 
-  EM em = EM(4, EM::COV_MAT_DIAGONAL);
-  Mat likelihood;
-  while (minDistance < threshold) {
+  // Initialize combination log-likelihood vector
+  int length = categories.size();
+  vector<vector<Mat> > clikelihoods(length, vector<Mat>(length));
+  while (minDistance < threshold && length > 4) {
     minDistance = 1.0;
-    int index1, index2;
+    int index1 = -1, index2 = -1;
 
-    #pragma omp parallel for private(em, likelihood)
-    for (int i = 0; i < categories.size() - 1; ++i) {
-      for (int j = i + 1; j < categories.size(); ++j) {
-        Mat combination = categories[i].clone();
-        combination.push_back(categories[j]);
+    // update combination log-likelihood vector
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < length; ++i) {
+      for (int j = 0; j < length; ++j) {
+        if (i >= j) continue;
 
-        em.train(combination, likelihood, noArray(), noArray());
-        double distance = kl_distance(total, likelihoods[i], likelihoods[j], likelihood);
-//        printf("distance(%d, %d) = %lf\n", i, j, distance);
+        if (index1 == -1 || j == index1 || i == index1) {
+          EM em = EM(4, EM::COV_MAT_DIAGONAL);
+          Mat combination = categories[i].clone();
+          combination.push_back(categories[j]);
+          em.train(combination, clikelihoods[i][j], noArray(), noArray());
+          
+          printf("%d, %d\n", i, j);
+        }
+      }
+    }
+
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < length; ++i) {
+      for (int j = 0; j < length; ++j) {
+        if (i >= j) continue;
+//        index = (2 * categories.size() - i - 2) * (i + 1) / 2 + j - i;
+        double distance = kl_distance(total, likelihoods[i], likelihoods[j], clikelihoods[i][j]);
+        printf("distance(%d, %d) = %lf\n", i, j, distance);
 
         #pragma omp critical
         if (minDistance > distance) {
@@ -45,17 +61,31 @@ int merge(vector<Mat> &categories, vector<Mat> &likelihoods) {
         }
       }
     }
-
     printf("minDistance(%d, %d) = %lf\n", index1, index2, minDistance);
-    // merge C2 into C1
+
+    // merge categories
     categories[index1].push_back(categories[index2]);
-    likelihoods[index1].push_back(likelihoods[index2]);
-    // erase C2
     categories.erase(categories.begin() + index2);
-    likelihoods.erase(likelihoods.begin() + index2);
+/*    #pragma omp parallel for
+    for (int r = 0; r < categories[index1].rows; ++r) {
+      categories[index1].at<double>(r, 0) = (categories[index1].at<double>(r, 0) + categories[index2].at<double>(r, 0)) / 2;
+      categories[index1].at<double>(r, 1) = (categories[index1].at<double>(r, 1) + categories[index2].at<double>(r, 1)) / 2;
+      categories[index1].at<double>(r, 2) = (categories[index1].at<double>(r, 2) + categories[index2].at<double>(r, 2)) / 2;
+      categories[index1].at<double>(r, 3) = (categories[index1].at<double>(r, 3) + categories[index2].at<double>(r, 3)) / 2;
+      categories[index1].at<double>(r, 4) = (categories[index1].at<double>(r, 4) + categories[index2].at<double>(r, 4)) / 2;
+    }*/
+
+    // erase index2 in clikelihoods vector
+    clikelihoods.erase(clikelihoods.begin() + index2);
+    #pragma omp parallel for
+    for (int i = 0; i < clikelihoods.size(); ++i) {
+      clikelihoods[i].erase(clikelihoods[i].begin() + index2);
+    }
+    
+    length = categories.size();
   }
 
-  return categories.size();
+  return length;
 }
 
 double kl_distance(int total, Mat logL1, Mat logL2, Mat logL) {
