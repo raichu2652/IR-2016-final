@@ -5,12 +5,13 @@
 
 #include "omp.h"
 
+#include <algorithm>
 #include <iostream>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <vector>
-#include <tuple>
 #include <dirent.h>
 
 #include "merge.h"
@@ -28,16 +29,13 @@ const char *DELIM_ARG = "-d";
 const char *ITER_ARG = "-m";*/
 
 int main( int argc, char** argv ) {
-  char query[20];
-  if (argc != 2) {
-    exit(0);
-  }
-
   // download query images from Google
   char command[100], tempDir[20] = "./temp/";
-  sprintf(command, "./script/crawler.py -n %d -q %s -o %s", DATA_SIZE, argv[1], tempDir);
-  printf("execute %s\n", command);
-  system(command);
+  if (argc == 2) {
+    sprintf(command, "./script/crawler.py -n %d -q %s -o %s", DATA_SIZE, argv[1], tempDir);
+    printf("execute %s\n", command);
+    system(command);
+  }
   
   // read all images
   // convert images from BGR to Lab color space
@@ -127,9 +125,9 @@ int main( int argc, char** argv ) {
     closedir(directory);
   }
 
-  double minDistance = 1.0;
-  int index1, index2;
+  map<int, double> list;
   for (int i = 0; i < n; ++i) {
+    double minDistance = 1.0;
     Mat likelihood;
     EM emc = EM(4, EM::COV_MAT_DIAGONAL);
     emc.train(features[i], likelihood, noArray(), noArray());
@@ -140,22 +138,31 @@ int main( int argc, char** argv ) {
       double sum = c1 + c2;
 
       Mat predict1, predict2;
-      predict1 = Mat(c2, 1, CV_64FC1);
-      for (int k = 0; k < c2; ++k) {
-        predict1.at<double>(k, 0) = emc.predict(samples[j].row(k))[0];
-      }
-      predict2 = Mat(c1, 1, CV_64FC1);
-      for (int k = 0; k < c1; ++k) {
-        double lsum = 0.0;
-        for (int g = 0; g < groups[j].size(); ++g) {
-          lsum += em[groups[j][g]].predict(features[i].row(k))[0];
+      #pragma omp parallel sections
+      {
+        #pragma omp section
+        {
+          predict1 = Mat(c2, 1, CV_64FC1);
+          for (int k = 0; k < c2; ++k) {
+            predict1.at<double>(k, 0) = emc.predict(samples[j].row(k))[0];
+          }
         }
-        double csum = 0.0;
-        for (int g = 0; g < groups[j].size(); ++g) {
-          double ck = SIZE;
-          csum += ck * pow(2, em[groups[j][g]].predict(features[i].row(k))[0] - lsum);
+        #pragma omp section
+        {
+          predict2 = Mat(c1, 1, CV_64FC1);
+          for (int k = 0; k < c1; ++k) {
+            double lsum = 0.0;
+            for (int g = 0; g < groups[j].size(); ++g) {
+              lsum += em[groups[j][g]].predict(features[i].row(k))[0];
+            }
+            double csum = 0.0;
+            for (int g = 0; g < groups[j].size(); ++g) {
+              double ck = SIZE;
+              csum += ck * pow(2, lsum - em[groups[j][g]].predict(features[i].row(k))[0]);
+            }
+            predict2.at<double>(k, 0) = log2(csum) + lsum - log2(c1);
+          }
         }
-        predict2.at<double>(k, 0) = log2(csum) + lsum - log2(c1);
       }
       Mat first = (likelihood * (c1 / sum)) + (predict2 * (c2 / sum));
       Mat second = (likelihoods[j] * (c2 / sum)) + (predict1 * (c1 / sum));
@@ -166,14 +173,16 @@ int main( int argc, char** argv ) {
 
       if (minDistance > distance) {
         printf("minDistance(%d, %d) = %lf\n", i, j, distance);
+
+        list[i] = distance;
         minDistance = distance;
-        index1 = i;
-        index2 = j;
       }
     }
   }
 
-  printf("candidate %s (%d, %d)\n", candidates[index1], index1, index2);
+  for (map<int, double>::iterator it = list.begin(); it != list.end(); ++it) {
+    printf("%lf: %s\n", it->second, candidates[it->first]);
+  }
   
 //  imshow(filename, images[i]);
 //  waitKey(0);

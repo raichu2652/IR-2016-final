@@ -12,7 +12,7 @@ merge.o:
 	g++ $(CFLAGS) -c -o $(BIN)merge.o $(SRC)merge.cpp $(LIBS)
 
 run:
-	time $(BIN)main 海洋
+	time $(BIN)main
 
 clean:
 	rm -f $(BIN)*

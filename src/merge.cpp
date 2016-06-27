@@ -19,7 +19,7 @@ using namespace std;
 
 int merge(vector<Mat> &images, vector<Mat> &likelihoods, vector<vector<int> > &collections, EM em[]) {
   int total = images[0].rows * images.size();
-  double threshold = 0.05;
+  double threshold = THRESHOLD;
   double minDistance = 0.0;
   int index1 = -1, index2 = -1;
 
@@ -49,33 +49,42 @@ int merge(vector<Mat> &images, vector<Mat> &likelihoods, vector<vector<int> > &c
           int c2 = glikelihoods[j].rows;
           double sum = c1 + c2;
 
-          Mat predict1 = Mat(c2, 1, CV_64FC1);
-          for (int k = 0; k < c2; ++k) {
-            double lsum = 0.0;
-            for (int g = 0; g < groups[i].size(); ++g) {
-              lsum += em[groups[i][g]].predict(categories[j].row(k))[0];
+          Mat predict1, predict2;
+          #pragma omp parallel sections
+          {
+            #pragma omp section
+            {
+              predict1 = Mat(c2, 1, CV_64FC1);
+              for (int k = 0; k < c2; ++k) {
+                double lsum = 0.0;
+                for (int g = 0; g < groups[i].size(); ++g) {
+                  lsum += em[groups[i][g]].predict(categories[j].row(k))[0];
+                }
+                double csum = 0.0;
+                for (int g = 0; g < groups[i].size(); ++g) {
+                  double ck = images[groups[i][g]].rows;
+                  csum += ck * pow(2, lsum - em[groups[i][g]].predict(categories[j].row(k))[0]);
+                }
+                predict1.at<double>(k, 0) = log(csum) + lsum - log(c2);
+              }
             }
-            double csum = 0.0;
-            for (int g = 0; g < groups[i].size(); ++g) {
-              double ck = images[groups[i][g]].rows;
-              csum += ck * pow(2, em[groups[i][g]].predict(categories[j].row(k))[0] - lsum);
+            #pragma omp section
+            {
+              predict2 = Mat(c1, 1, CV_64FC1);
+              for (int k = 0; k < c1; ++k) {
+                double lsum = 0.0;
+                for (int g = 0; g < groups[j].size(); ++g) {
+                  lsum += em[groups[j][g]].predict(categories[i].row(k))[0];
+                }
+                double csum = 0.0;
+                for (int g = 0; g < groups[j].size(); ++g) {
+                  double ck = images[groups[j][g]].rows;
+                  csum += ck * pow(2, lsum - em[groups[j][g]].predict(categories[i].row(k))[0]);
+                }
+                predict2.at<double>(k, 0) = log2(csum) + lsum - log2(c1);
+              }
             }
-            predict1.at<double>(k, 0) = log(csum) + lsum - log(c2);
-          }
-          Mat predict2 = Mat(c1, 1, CV_64FC1);
-          for (int k = 0; k < c1; ++k) {
-            double lsum = 0.0;
-            for (int g = 0; g < groups[j].size(); ++g) {
-              lsum += em[groups[j][g]].predict(categories[i].row(k))[0];
-            }
-            double csum = 0.0;
-            for (int g = 0; g < groups[j].size(); ++g) {
-              double ck = images[groups[j][g]].rows;
-              csum += ck * pow(2, em[groups[j][g]].predict(categories[i].row(k))[0] - lsum);
-            }
-            predict2.at<double>(k, 0) = log2(csum) + lsum - log2(c1);
-          }
-
+          } 
           Mat first = (glikelihoods[i] * (c1 / sum)) + (predict2 * (c2 / sum));
           Mat second = (glikelihoods[j] * (c2 / sum)) + (predict1 * (c1 / sum));
           clikelihoods[i][j] = first.clone();
@@ -172,8 +181,6 @@ void draw(char* filename, Mat image, Mat label, Mat mean) {
     }
   }
   imwrite(filename, image);
-//  imshow("Clustered", clustered);
-//  waitKey(0);
 
   printf("Clusters[%d, %d, %d, %d]\n", count[0], count[1], count[2], count[3]);
 }

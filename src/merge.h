@@ -3,9 +3,10 @@
 
 #include <vector>
 
-#define DATA_SIZE 50
+#define DATA_SIZE 20
 #define SIZE 20
 #define SIZE_F 20.0
+#define THRESHOLD 0.2
 
 using namespace cv;
 using namespace std;
