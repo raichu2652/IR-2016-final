@@ -3,6 +3,10 @@
 
 #include <vector>
 
+#define DATA_SIZE 50
+#define SIZE 20
+#define SIZE_F 20.0
+
 using namespace cv;
 using namespace std;
 
@@ -11,7 +15,7 @@ using namespace std;
  * until the KL distance is less than a threshold.
  * Return the number of catergories
  */
-int merge(vector<Mat> &categories, vector<Mat> &likelihoods);
+int merge(vector<Mat> &categories, vector<Mat> &likelihoods, vector<vector<int> > &collections, EM em[]);
 
 /**
  * Calculate KL distance between distributions,
@@ -20,4 +24,4 @@ int merge(vector<Mat> &categories, vector<Mat> &likelihoods);
  */
 double kl_distance(int total, Mat logL1, Mat logL2, Mat logL);
 
-void draw(char* filename, Mat mean);
+void draw(char* filename, Mat image, Mat label, Mat mean);
